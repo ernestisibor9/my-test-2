@@ -1,0 +1,49 @@
+name: Deploy Laravel from Local to Server
+
+on:
+  workflow_dispatch: # This allows you to trigger the deployment manually from GitHub anytime you want
+
+env:
+  SSH_OPTS: -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password -o PubkeyAuthentication=no
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Remove git metadata before deploy
+        run: rm -rf .git .github
+
+      - name: Install SSH tools
+        run: sudo apt-get install -y sshpass
+
+      - name: Copy files over SCP to Server
+        env:
+          SSHPASS: ${{ secrets.SSH_PASSWORD }}
+        run: |
+          sshpass -p "$SSHPASS" ssh $SSH_OPTS -p "${{ secrets.SSH_PORT }}" \
+            "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}" \
+            "mkdir -p /home/nacpkiwb/deploy.nacpdean.org"
+
+          sshpass -p "$SSHPASS" scp $SSH_OPTS -P "${{ secrets.SSH_PORT }}" \
+            -r ./* \
+            "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:/home/nacpkiwb/deploy.nacpdean.org/"
+
+      - name: Run Laravel Post-Deployment Tasks on Server
+        env:
+          SSHPASS: ${{ secrets.SSH_PASSWORD }}
+        run: |
+          sshpass -p "$SSHPASS" ssh $SSH_OPTS -p "${{ secrets.SSH_PORT }}" \
+            "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}" \
+            "cd /home/nacpkiwb/deploy.nacpdean.org && \
+             composer install --no-dev --optimize-autoloader --no-interaction && \
+             php artisan migrate --force && \
+             php artisan config:cache && \
+             php artisan route:cache && \
+             php artisan view:cache && \
+             php artisan storage:link || true"
+
+          echo "Deployment completed successfully."
